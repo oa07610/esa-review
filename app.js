@@ -776,19 +776,35 @@
   });
 
   /* ---------------- keyboard ---------------- */
+  // Reviewers often type with a Thai, Persian, Urdu, Devanagari or Bengali layout active: there e.key is a native
+  // letter or digit, so fall back to the physical key (e.code) whenever e.key is not plain ASCII.
+  function layoutKey(e) {
+    var k = e.key;
+    if (k && k.length === 1 && k.charCodeAt(0) < 128 && k !== " ") return k;
+    if (k && k.length > 1 && k !== "Process" && k !== "Unidentified" && k !== "Dead") return k;   // Enter, ArrowLeft, ...
+    var c = e.code || "";
+    if (/^Key[A-Z]$/.test(c)) return e.shiftKey ? c.slice(3) : c.slice(3).toLowerCase();
+    if (/^(Digit|Numpad)[0-9]$/.test(c)) return c.slice(-1);
+    if (c === "BracketLeft") return "[";
+    if (c === "BracketRight") return "]";
+    if (c === "Slash" && e.shiftKey) return "?";
+    if (c === "Minus") return "-";
+    if (c === "Equal") return e.shiftKey ? "+" : "=";
+    return k;
+  }
   document.addEventListener("keydown", function (e) {
     var tag = (e.target && e.target.tagName) || "", typing = /INPUT|TEXTAREA|SELECT/.test(tag) && e.target.type !== "checkbox";
-    if ((e.ctrlKey || e.metaKey) && (e.key === "s" || e.key === "S")) { e.preventDefault(); doExport(); return; }
+    if ((e.ctrlKey || e.metaKey) && (e.key === "s" || e.key === "S" || e.code === "KeyS")) { e.preventDefault(); doExport(); return; }
     if (blockedByOtherTab) return;
     if (e.key === "Escape") { if (!pop.hidden) { hidePop(); window.getSelection().removeAllRanges(); pending = null; } return; }
     if ($("#view-block").hidden || document.querySelector("dialog[open]")) {
-      if (!typing && e.key === "?" && !$("#view-block").hidden) $("#dlg-help").showModal();
+      if (!typing && layoutKey(e) === "?" && !$("#view-block").hidden) $("#dlg-help").showModal();
       return;
     }
     if (typing) return;
-    if ((e.ctrlKey || e.metaKey) && (e.key === "z" || e.key === "Z")) { e.preventDefault(); undo(); return; }
+    if ((e.ctrlKey || e.metaKey) && (e.key === "z" || e.key === "Z" || e.code === "KeyZ")) { e.preventDefault(); undo(); return; }
     if (e.ctrlKey || e.metaKey || e.altKey) return;
-    var k = e.key;
+    var k = layoutKey(e);
     if (!pop.hidden && pop.hasAttribute("data-span") && (k === "Delete" || k === "Backspace")) {
       e.preventDefault(); var id = pop.getAttribute("data-span"), pn = +pop.getAttribute("data-n"); hidePop(); removeSpan(pn, id); return;
     }
