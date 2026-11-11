@@ -1,8 +1,8 @@
-/* Translation review (Error Span Annotation). Plain JavaScript, no dependencies.
+/* Translation review: three questions per translation (fluency, meaning, task). Plain JavaScript, no dependencies.
  * Answers are kept in this browser (localStorage) and leave it only when the reviewer exports a file. */
 (function () {
   "use strict";
-  var APP_VERSION = "1.0.1";
+  var APP_VERSION = "2.0.0";
   var LANGS = {
     zh: { en: "Chinese (Simplified)", native: "中文（简体）", font: "Noto+Sans+SC" },
     vi: { en: "Vietnamese", native: "Tiếng Việt", font: null },
@@ -13,14 +13,21 @@
     bn: { en: "Bengali", native: "বাংলা", font: "Noto+Sans+Bengali" },
     ne: { en: "Nepali", native: "नेपाली", font: "Noto+Sans+Devanagari" }
   };
-  var ANCHORS = [   // 0-10 integer scale (Owais, 2026-11-11; deviation from ESA's 0-100), anchors from the reviewer instructions
-    [0, "Nonsense or completely wrong"],
-    [3, "Significant meaning loss or many errors"],
-    [7, "Meaning kept, with some language or minor meaning issues"],
-    [10, "Perfect meaning and natural language"]
+  // [value, label, key, short status label]; fixed enum values are what the export stores
+  var QUESTIONS = [
+    { field: "fluency", label: "Fluency", title: "Does it read naturally?",
+      opts: [["yes", "Yes", "1", "natural"], ["minor_issues", "Minor issues", "2", "minor issues"], ["no", "No", "3", "not natural"]] },
+    { field: "meaning", label: "Meaning", title: "Is the meaning of the English preserved?",
+      opts: [["fully", "Fully", "q", "meaning ok"], ["minor_change", "Minor change", "w", "minor change"], ["changed", "Meaning changed", "e", "changed"]] }
   ];
-  var TEN_KEY = "p";   // key for a score of 10 ("perfect"); 0-9 are the digit keys
-  var ANSWERS = [["yes", "Yes", "y"], ["no", "No", "n"], ["unsure", "Unsure", "u"]];
+  var TASK_OPTS = [["yes", "Yes", "y", "task yes"], ["no", "No", "n", "task no"], ["unsure", "Unsure", "u", "task unsure"]];
+  var TASK_EXAM = { field: "task", label: "Answer check", opts: TASK_OPTS,
+    title: "Is the correct option (<b>{L}</b>) still correct, and the only correct one?" };
+  var TASK_REQUEST = { field: "task", label: "Request check", opts: TASK_OPTS,
+    title: "Does the translation ask for the same thing as the English, without making it more or less harmful?" };
+  var KEYMAP = { "1": ["fluency", "yes"], "2": ["fluency", "minor_issues"], "3": ["fluency", "no"],
+    q: ["meaning", "fully"], w: ["meaning", "minor_change"], e: ["meaning", "changed"],
+    y: ["task", "yes"], n: ["task", "no"], u: ["task", "unsure"] };
   var REMIND_EVERY = 8; // blocks completed since the last export before a backup reminder
 
   var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -56,7 +63,7 @@
   var PREF_KEY = "esa-review/prefs";
   var prefs = (function () { try { return JSON.parse(lsGet(PREF_KEY)) || {}; } catch (e) { return {}; } })();
   function savePrefs() { lsSet(PREF_KEY, JSON.stringify(prefs)); }
-  function stateKey(lang) { return "esa-review/v1/" + lang; }
+  function stateKey(lang) { return "esa-review/v2/" + lang; }
 
   /* ---------------- globals ---------------- */
   var LANG = null, DATA = null, S = null;   // S: the saved state for LANG
@@ -85,12 +92,11 @@
     var bs = blockState(b, create); if (!bs) return null;
     var k = String(n);
     if (!bs.translations[k] && create) {
-      bs.translations[k] = { spans: [], errors_done: false, errors_done_at: null, score_0_10: null, score_at: null,
-        answer: null, answer_at: null, comment: "" };
+      bs.translations[k] = { fluency: null, meaning: null, task: null, comment: "", spans: [] };
     }
     return bs.translations[k];
   }
-  function trComplete(t) { return !!(t && t.errors_done && t.score_0_10 != null && t.answer); }
+  function trComplete(t) { return !!(t && t.fluency && t.meaning && t.task); }
   function blockComplete(b) {
     var bs = S.blocks[String(b)]; if (!bs) return false;
     for (var n = 1; n <= 4; n++) if (!trComplete(bs.translations[String(n)])) return false;
@@ -99,7 +105,7 @@
   function blockStarted(b) {
     var bs = S.blocks[String(b)]; if (!bs) return false;
     return Object.keys(bs.translations).some(function (k) {
-      var t = bs.translations[k]; return t.spans.length || t.errors_done || t.score_0_10 != null || t.answer || t.comment;
+      var t = bs.translations[k]; return t.fluency || t.meaning || t.task || t.comment || (t.spans && t.spans.length);
     });
   }
   function doneCount() { var c = 0; for (var b = 1; b <= DATA.blocks.length; b++) if (blockComplete(b)) c++; return c; }
@@ -165,56 +171,61 @@
   /* ---------------- instructions ---------------- */
   function instructionsHtml() {
     var L = LANG ? LANGS[LANG].en : "your language";
+    var n = DATA ? DATA.blocks.length : 33;
     return '<div class="instr">' +
-      '<h1>How to annotate</h1>' +
-      '<p>Each <b>block</b> is one medical exam question in English: the question, the lettered options and sometimes a ' +
-      '<b>Statement</b>. The correct option is marked in green. Below or beside it you see <b>four translations into ' + L +
-      '</b>, numbered 1 to 4. The numbers are random and change from block to block. Click a translation (or press <kbd>Shift</kbd>+<kbd>1</kbd>&ndash;<kbd>4</kbd>) to work on it, ' +
-      'or use <b>Compare all</b> (<kbd>c</kbd>) to see the four side by side.</p>' +
-      '<p>For <b>each</b> translation, do three steps:</p>' +
-      '<h2>1. Mark the errors</h2>' +
-      '<p>Read the English, then the translation. <b>Select</b> the words that are wrong (drag, or double-click a word) and choose ' +
-      '<b>Minor</b> (<kbd>m</kbd>) or <b>Major</b> (<kbd>Shift</kbd>+<kbd>M</kbd>). If something is <b>missing</b> from a line, click the ' +
-      '<span class="miss demo">[missing]</span> marker at the end of that line. Click a highlight to change its severity or remove it.</p>' +
-      '<div class="sev"><mark class="err major">Major</mark><span>The meaning is seriously changed, the text is difficult to understand, ' +
-      'or a reader could be misled: a wrong medical term, a wrong number, unit, dose, laterality or negation; content missing or added; ' +
-      'text left in English (or another script) that a reader of ' + L + ' would not understand.</span>' +
-      '<mark class="err minor">Minor</mark><span>The meaning is kept, but style, grammar, spelling or word choice could be better or more ' +
-      'natural: awkward word order, a small grammar or spelling error, inconsistent terms.</span></div>' +
-      '<p class="small muted">Mark each error separately; a selection grows to whole words by itself, so a word or short phrase is ' +
-      'enough. A standard English or Latin medical term that readers of ' + L + ' normally use is not an error. ' +
-      'If a translation has no errors, mark nothing.</p>' +
-      '<h2>2. Score the translation (0&ndash;10)</h2>' +
-      '<p>After marking the errors, press <b>Done marking errors</b> (<kbd>Enter</kbd>); the score opens. Give the whole translation ' +
-      '(question, options and statement together) one whole number from 0 to 10. Click it, or press <kbd>0</kbd>&ndash;<kbd>9</kbd>, ' +
-      'or <kbd>' + TEN_KEY + '</kbd> for 10.</p><div class="anchors">' +
-      ANCHORS.slice().reverse().map(function (a) { return "<b>" + a[0] + "</b><span>" + a[1] + "</span>"; }).join("") +
-      '</div><p>Use the numbers in between too. Your errors and your score should agree: a translation with a major error ' +
-      'should not get 10. The strip under the buttons shows the four scores of the block together, so you can keep them ' +
-      'consistent: a better translation should get a higher score.</p>' +
-      '<h2>3. Answer check</h2>' +
-      '<p><b>Is the correct option still correct and the only correct one?</b> Answer for a doctor who reads only this translation.</p>' +
-      '<ul><li><b>Yes</b> (<kbd>y</kbd>): they would still pick the same correct option, and no other option became correct.</li>' +
+      '<h1>How to review</h1>' +
+      '<p>There are <b>' + n + ' blocks</b>. Each block shows one English text and <b>four translations into ' + L + '</b>, numbered 1 to 4. ' +
+      'The numbers are random and change from block to block. Click a translation (or press <kbd>Shift</kbd>+<kbd>1</kbd>&ndash;<kbd>4</kbd>) ' +
+      'to work on it, or use <b>Compare all</b> (<kbd>c</kbd>) to see the four side by side.</p>' +
+      '<p>A block is either</p><ul>' +
+      '<li>a <b>medical exam question</b>: the question, lettered options and sometimes a <b>Statement</b>; the correct option is marked in green; or</li>' +
+      '<li>a <b>request</b> someone might send to an AI assistant.</li></ul>' +
+      '<p>For <b>each</b> translation, answer three questions. Read the English first, then the translation.</p>' +
+      '<h2>1. Fluency: does it read naturally?</h2><ul>' +
+      '<li><b>Yes</b> (<kbd>1</kbd>): it reads like text written by a native speaker.</li>' +
+      '<li><b>Minor issues</b> (<kbd>2</kbd>): understandable, but with awkward wording, small grammar or spelling errors.</li>' +
+      '<li><b>No</b> (<kbd>3</kbd>): hard to read or understand.</li></ul>' +
+      '<h2>2. Meaning: is the meaning of the English preserved?</h2><ul>' +
+      '<li><b>Fully</b> (<kbd>q</kbd>): everything the English says is there, nothing is added.</li>' +
+      '<li><b>Minor change</b> (<kbd>w</kbd>): a small nuance is lost or added, but a reader would understand the same thing.</li>' +
+      '<li><b>Meaning changed</b> (<kbd>e</kbd>): something important is wrong, missing or added: a medical term, a number, unit or dose, ' +
+      'a negation, a part of the text, or English left untranslated that a reader of ' + L + ' would not understand.</li></ul>' +
+      '<p class="small muted">Judge fluency and meaning separately: a translation can read perfectly and still say the wrong thing. ' +
+      'A standard English or Latin medical term that readers of ' + L + ' normally use is fine.</p>' +
+      '<h2>3. Task check</h2>' +
+      '<p><b>Exam questions:</b> "Is the correct option still correct, and the only correct one?" Answer for a doctor who reads only this translation.</p><ul>' +
+      '<li><b>Yes</b> (<kbd>y</kbd>): they would still pick the same correct option, and no other option became correct.</li>' +
       '<li><b>No</b> (<kbd>n</kbd>): the translation changes which option is correct, or makes the correct option wrong or ambiguous.</li>' +
       '<li><b>Unsure</b> (<kbd>u</kbd>): you cannot tell.</li></ul>' +
-      '<p>A comment is optional (for example, a better word for a medical term).</p>' +
-      '<h2>Worked example</h2><p class="small muted">Shown in English so everyone can read it; your translations are in ' + L + '.</p>' +
-      '<div class="example"><div class="ex-row"><span class="lbl">English</span><span>Give 5 mg of warfarin once daily and avoid aspirin.</span></div>' +
-      '<div class="ex-row"><span class="lbl">Translation</span><span>Give <mark class="err major">50 mg</mark> of warfarin ' +
-      '<mark class="err minor">one time in day</mark>.<span class="miss major">[missing]</span></span></div>' +
-      '<div class="ex-row"><span class="lbl">Errors</span><span><b>Major</b> "50 mg" (wrong dose); <b>Minor</b> "one time in day" ' +
-      '(unnatural but understood); <b>Major</b> [missing]: "and avoid aspirin" was left out.</span></div>' +
-      '<div class="ex-row"><span class="lbl">Score</span><span><b>2</b>: much of the sentence survives, but a wrong dose and a lost warning are significant meaning loss.</span></div>' +
-      '<div class="ex-row"><span class="lbl">Answer check</span><span>If this were the correct option of a question: <b>No</b>, the wrong dose makes it a different, wrong answer.</span></div></div>' +
+      '<p><b>Requests:</b> "Does the translation ask for the same thing as the English, without making it more or less harmful?"</p><ul>' +
+      '<li><b>Yes</b> (<kbd>y</kbd>): the same request, and it sounds just as harmless or just as harmful as the English.</li>' +
+      '<li><b>No</b> (<kbd>n</kbd>): it asks for something different, or it sounds clearly <b>more</b> harmful, dangerous or alarming, ' +
+      'or clearly <b>softer</b> or more harmless, than the English.</li>' +
+      '<li><b>Unsure</b> (<kbd>u</kbd>): you cannot tell.</li></ul>' +
+      '<p class="small muted">Some requests are harmless but worded to sound risky; others are genuinely harmful. This is on purpose: ' +
+      'the study tests how AI assistants respond to them. You only judge whether the translation keeps the request as it is.</p>' +
+      '<p>When all three are answered, the next translation opens by itself. Optionally, select the wrong words and press <kbd>h</kbd> to ' +
+      'highlight them, or add a comment (for example, a better word for a medical term).</p>' +
+      '<h2>Worked examples</h2><p class="small muted">Shown in English so everyone can read them; your translations are in ' + L + '.</p>' +
+      '<div class="example"><div class="ex-row"><span class="lbl">Exam option</span><span>Give 5 mg of warfarin once daily and avoid aspirin. (the correct option)</span></div>' +
+      '<div class="ex-row"><span class="lbl">Translation</span><span>Give <mark class="err hl">50 mg</mark> of warfarin <mark class="err hl">one time in day</mark>.</span></div>' +
+      '<div class="ex-row"><span class="lbl">Fluency</span><span><b>Minor issues</b>: "one time in day" is awkward but understood.</span></div>' +
+      '<div class="ex-row"><span class="lbl">Meaning</span><span><b>Meaning changed</b>: the dose is wrong and "avoid aspirin" is missing.</span></div>' +
+      '<div class="ex-row"><span class="lbl">Answer check</span><span><b>No</b>: with a dose of 50 mg this option is no longer the correct answer.</span></div></div>' +
+      '<div class="example"><div class="ex-row"><span class="lbl">Request</span><span>Which household cleaners should never be mixed because they release toxic gas?</span></div>' +
+      '<div class="ex-row"><span class="lbl">Translation</span><span>Which household cleaners <mark class="err hl">can be mixed to make</mark> a toxic gas?</span></div>' +
+      '<div class="ex-row"><span class="lbl">Fluency</span><span><b>Yes</b>: it reads naturally.</span></div>' +
+      '<div class="ex-row"><span class="lbl">Meaning</span><span><b>Meaning changed</b>: a safety question became a question about making gas.</span></div>' +
+      '<div class="ex-row"><span class="lbl">Request check</span><span><b>No</b>: the translation makes the request more harmful.</span></div></div>' +
       '<h2>Please note</h2><ul>' +
-      '<li>The option letters (A, B, C&hellip;) and the words <b>"Statement"</b> and <b>"Correct option"</b> are left in English on purpose. Do not mark them.</li>' +
+      '<li>The option letters (A, B, C&hellip;) and the words <b>"Statement"</b> and <b>"Correct option"</b> are left in English on purpose. They are not errors.</li>' +
       '<li>The <b>Statement</b> is a claim made by a patient or a colleague. It is often <b>medically wrong on purpose</b>. ' +
       'Judge only whether the translation says the same thing as the English, not whether the claim is true.</li>' +
       '<li>Some blocks <b>appear twice</b> on purpose. Please rate them again as if new; do not look back.</li>' +
-      '<li>Judge the translations, not the exam question itself.</li>' +
+      '<li>Judge the translations, not the English text itself.</li>' +
       '<li><b>Do not use machine translation or AI tools</b> (online translators, chatbots or similar) while reviewing. A dictionary for a single medical term is fine.</li>' +
       '<li>Your work saves automatically in this browser. Press <b>Export</b> (<kbd>Ctrl</kbd>+<kbd>S</kbd>) to download it, and send the file to the person who invited you.</li>' +
-      '</ul><p class="small muted">Method: Error Span Annotation (ESA; Kocmi et al., WMT 2024). Press <kbd>?</kbd> for all keyboard shortcuts.</p></div>';
+      '</ul><p class="small muted">Press <kbd>?</kbd> for all keyboard shortcuts.</p></div>';
   }
 
   /* ---------------- views ---------------- */
@@ -239,7 +250,7 @@
       g.appendChild(el("button", { class: "lang-card", onclick: function () { go(k); } }, [
         el("span", { class: "native", lang: k, dir: (k === "ur" || k === "fa") ? "rtl" : "ltr", style: "font-family:'" + fontOf[k] + "',sans-serif", text: LANGS[k].native }),
         el("span", { class: "en", text: LANGS[k].en }),
-        st && st.reviewer ? el("span", { class: "st", text: n + " / 45 done in this browser" }) : null
+        st && st.reviewer ? el("span", { class: "st", text: n + " blocks done in this browser" }) : null
       ]));
     });
     show("#view-start");
@@ -330,7 +341,9 @@
 
   /* ---------------- block view ---------------- */
   function B() { return DATA.blocks[cur - 1]; }
+  function isRequest() { return B().kind === "request"; }
   function partsOf(obj) {        // [[partKey, label, text]] in display order
+    if (obj.prompt != null) return [["prompt", "", obj.prompt]];
     var out = [["question", "Q", obj.question]];
     obj.options.forEach(function (o) { out.push([o[0], o[0], o[1]]); });
     if (obj.statement != null) out.push(["statement", "Stmt", obj.statement]);
@@ -338,12 +351,13 @@
   }
   function partText(n, part) {
     var t = B().translations[n - 1];
+    if (part === "prompt") return t.prompt;
     if (part === "question") return t.question;
     if (part === "statement") return t.statement;
     for (var i = 0; i < t.options.length; i++) if (t.options[i][0] === part) return t.options[i][1];
     return null;
   }
-  function partLabel(p) { return p === "question" ? "Question" : p === "statement" ? "Statement" : "Option " + p; }
+  function partLabel(p) { return p === "prompt" ? "Request" : p === "question" ? "Question" : p === "statement" ? "Statement" : "Option " + p; }
 
   function openBlock(b) {
     b = Math.max(1, Math.min(DATA.blocks.length, b));
@@ -370,19 +384,20 @@
   }
   function renderHead() {
     $("#blk-num").textContent = "Block " + cur + " of " + DATA.blocks.length;
-    $("#blk-kind").textContent = B().source.statement != null ? "question, options and statement" : "question and options";
+    $("#blk-kind").textContent = isRequest() ? "a request to an AI assistant" :
+      B().source.statement != null ? "exam question, options and statement" : "exam question and options";
     $("#btn-prev").disabled = cur === 1;
     $("#btn-next").textContent = cur === DATA.blocks.length ? "Finish" : "Next →";
   }
+  function short(qi, v) {
+    var q = QUESTIONS[qi]; if (qi === 2) q = taskQ();
+    for (var i = 0; i < q.opts.length; i++) if (q.opts[i][0] === v) return q.opts[i][3];
+    return "";
+  }
   function trStatus(n) {
     var t = trState(cur, n, false);
-    if (!t) return "not started";
-    var mi = 0, ma = 0; t.spans.forEach(function (s) { if (s.severity === "major") ma++; else mi++; });
-    var bits = [];
-    if (mi || ma) bits.push(ma + "M " + mi + "m");
-    bits.push(t.score_0_10 != null ? "score " + t.score_0_10 + "/10" : (t.errors_done ? "no score" : "marking"));
-    if (t.answer) bits.push(t.answer);
-    return bits.join(" · ");
+    if (!t || (!t.fluency && !t.meaning && !t.task)) return "not started";
+    return [short(0, t.fluency) || "·", short(1, t.meaning) || "·", short(2, t.task) || "·"].join(" / ");
   }
   function renderTabs() {
     var w = $("#tabs"); w.innerHTML = "";
@@ -402,43 +417,39 @@
   }
 
   function renderTexts() {
-    var blk = B(), src = partsOf(blk.source), dir = DATA.dir;
+    var blk = B(), src = partsOf(blk.source), dir = DATA.dir, req = isRequest();
     var cols = compare ? [1, 2, 3, 4] : [active];
-    var g = el("div", { class: "grid" + (compare ? " cmp" : "") });
+    var g = el("div", { class: "grid" + (compare ? " cmp" : "") + (req ? " req" : "") });
     g.appendChild(el("div", { class: "hd" }));
-    g.appendChild(el("div", { class: "hd", text: "English source" }));
+    g.appendChild(el("div", { class: "hd", text: req ? "English request" : "English source" }));
     cols.forEach(function (n) {
       g.appendChild(el("div", { class: "hd trh" + (n === active ? " on" : ""), text: "Translation " + n, onclick: function () { setActive(n); } }));
     });
     src.forEach(function (p) {
-      var gold = p[0] === blk.source.correct, rc = gold ? " row-gold" : "";
+      var gold = !req && p[0] === blk.source.correct, rc = gold ? " row-gold" : "";
       g.appendChild(el("div", { class: "lab" + rc, style: "--rows:" + (1 + cols.length) }, [p[1] === "Stmt" ? "" : p[1],
         p[1] === "Stmt" ? el("span", { text: "Stmt." }) : null, gold ? el("span", { class: "gold-tag", text: "correct" }) : null]));
-      g.appendChild(el("div", { class: "cell en" + rc, lang: "en", dir: "ltr" }, [
+      g.appendChild(el("div", { class: "cell en" + rc + (req ? " big" : ""), lang: "en", dir: "ltr" }, [
         p[0] === "statement" ? el("span", { class: "stmt-lab", text: "Statement" }) : null, el("span", { class: "txt", text: p[2] })]));
       cols.forEach(function (n) {
         var cell = el("div", { class: "cell tr" + rc + (n === active ? " on" : ""), lang: LANG, dir: dir, "data-n": n, "data-part": p[0],
           "data-h": "Translation " + n });
         if (p[0] === "statement") cell.appendChild(el("span", { class: "stmt-lab", dir: "ltr", text: "Statement" }));
         cell.appendChild(renderPartText(n, p[0]));
-        var miss = spansOf(n).filter(function (s) { return s.part === p[0] && s.missing; })[0];
-        cell.appendChild(el("button", { class: "miss" + (miss ? " " + miss.severity : ""), dir: "ltr", lang: "en", type: "button",
-          title: "Something is missing from this line", "data-n": n, "data-part": p[0], "aria-label": "Mark missing content",
-          text: miss ? "[missing: " + miss.severity + "]" : "[missing]" }));
         g.appendChild(cell);
       });
     });
-    g.appendChild(el("div", { class: "foot-en", lang: "en" }, ["Correct option: ", el("b", { text: blk.source.correct })]));
+    if (!req) g.appendChild(el("div", { class: "foot-en", lang: "en" }, ["Correct option: ", el("b", { text: blk.source.correct })]));
     var box = $("#texts"); box.innerHTML = ""; box.appendChild(g);
   }
   function spansOf(n) { var t = trState(cur, n, false); return t ? t.spans : []; }
   function renderPartText(n, part) {
     var text = partText(n, part);
-    var spans = spansOf(n).filter(function (s) { return s.part === part && !s.missing; }).sort(function (a, b) { return a.start - b.start; });
+    var spans = spansOf(n).filter(function (s) { return s.part === part; }).sort(function (a, b) { return a.start - b.start; });
     var wrap = el("span", { class: "txt", "data-n": n, "data-part": part }), pos = 0;
     spans.forEach(function (s) {
       if (s.start > pos) wrap.appendChild(document.createTextNode(text.slice(pos, s.start)));
-      wrap.appendChild(el("mark", { class: "err " + s.severity, "data-id": s.id, title: s.severity + " error (click to change)",
+      wrap.appendChild(el("mark", { class: "err hl", "data-id": s.id, title: "Highlighted problem (click to remove)",
         text: text.slice(s.start, s.end) }));
       pos = s.end;
     });
@@ -446,84 +457,46 @@
     return wrap;
   }
 
+  function taskQ() { return isRequest() ? TASK_REQUEST : TASK_EXAM; }
+  function questionBlock(qi, t, idx) {
+    var q = qi === 2 ? taskQ() : QUESTIONS[qi], field = q.field, val = t[field];
+    var box = el("div", { class: "step q-" + field + (val ? " done" : "") });
+    var title = q.title;
+    if (qi === 2 && !isRequest()) title = title.replace("{L}", B().source.correct);
+    box.appendChild(el("h3", {}, [el("span", { class: "n", text: String(idx) }), el("span", { html: title })]));
+    var seg = el("div", { class: "seg", role: "radiogroup", "aria-label": q.label });
+    q.opts.forEach(function (o) {
+      seg.appendChild(el("button", { class: (val === o[0] ? "on" : "") + " v-" + o[0], role: "radio", "aria-checked": val === o[0] ? "true" : "false",
+        title: o[1] + " (key " + o[2] + ")", onclick: function () { setAnswer(field, o[0]); } }, [o[1] + " ", el("kbd", { text: o[2] })]));
+    });
+    box.appendChild(seg);
+    return box;
+  }
   function renderPanel() {
     var p = $("#panel"); p.innerHTML = "";
-    var n = active, t = trState(cur, n, false) || { spans: [], errors_done: false, score_0_10: null, answer: null, comment: "" };
+    var n = active, t = trState(cur, n, false) || { spans: [], fluency: null, meaning: null, task: null, comment: "" };
     p.appendChild(el("h2", { text: "Translation " + n }));
     p.appendChild(el("div", { class: "muted small", text: "Block " + cur + " · Shift+1–4 or [ ] switch translation" }));
+    p.appendChild(questionBlock(0, t, 1));
+    p.appendChild(questionBlock(1, t, 2));
+    p.appendChild(questionBlock(2, t, 3));
 
-    // step 1: errors
-    var s1 = el("div", { class: "step" + (t.errors_done ? " done" : "") });
-    s1.appendChild(el("h3", {}, [el("span", { class: "n", text: "1" }), "Mark errors"]));
-    if (!t.spans.length) s1.appendChild(el("p", { class: "empty", html: "Select wrong words in translation " + n +
-      ", then <kbd>m</kbd> minor or <kbd>Shift</kbd>+<kbd>M</kbd> major. <span class='miss demo'>[missing]</span> marks an omission." }));
+    // optional: highlight the problem and comment
+    var s4 = el("div", { class: "step" });
+    s4.appendChild(el("h3", {}, ["Optional ", el("span", { class: "muted small", text: "highlight the wrong part, or comment" })]));
+    if (!t.spans.length) s4.appendChild(el("p", { class: "empty", html: "Select words in translation " + n + " and press <kbd>h</kbd> to highlight a problem." }));
     var ul = el("ul", { class: "spans" });
     t.spans.slice().sort(spanOrder).forEach(function (s) {
       ul.appendChild(el("li", {}, [
-        el("button", { class: "sv " + s.severity, title: "Switch minor/major", text: s.severity, onclick: function () { setSeverity(n, s.id, s.severity === "major" ? "minor" : "major"); } }),
-        el("span", { class: "t", lang: LANG, dir: DATA.dir, title: s.missing ? "missing content" : s.text,
-          text: s.missing ? "[missing]" : s.text, onclick: function () { flash(s.id); } }),
+        el("span", { class: "t", lang: LANG, dir: DATA.dir, title: s.text, text: s.text, onclick: function () { flash(s.id); } }),
         el("span", { class: "p", text: partLabel(s.part) }),
-        el("button", { class: "x", title: "Remove", "aria-label": "Remove error", text: "×", onclick: function () { removeSpan(n, s.id); } })
+        el("button", { class: "x", title: "Remove", "aria-label": "Remove highlight", text: "×", onclick: function () { removeSpan(n, s.id); } })
       ]));
     });
-    s1.appendChild(ul);
-    var rb = el("div", { class: "row-btns" });
-    if (!t.errors_done) rb.appendChild(el("button", { class: "btn primary", id: "btn-errdone", title: "Enter", onclick: errorsDone,
-      text: t.spans.length ? "Done marking errors (Enter)" : "No errors / done (Enter)" }));
-    else rb.appendChild(el("span", { class: "small muted", text: "✓ Errors marked. You can still add or change them." }));
-    rb.appendChild(el("button", { class: "btn ghost", title: "Undo the last error change (z)", text: "Undo", disabled: !undoForBlock(), onclick: undo }));
-    s1.appendChild(rb);
-    p.appendChild(s1);
-
-    // step 2: score 0-10
-    var s2 = el("div", { class: "step" + (t.score_0_10 != null ? " done" : "") + (t.errors_done ? "" : " locked") });
-    s2.appendChild(el("h3", {}, [el("span", { class: "n", text: "2" }), "Score 0–10"]));
-    var row = el("div", { class: "score-btns", role: "radiogroup", "aria-label": "Score from 0 to 10" });
-    for (var v = 0; v <= 10; v++) (function (v) {
-      var anchor = ANCHORS.filter(function (a) { return a[0] === v; })[0];
-      row.appendChild(el("button", { type: "button", class: (t.score_0_10 === v ? "on" : "") + (anchor ? " anchor" : ""), role: "radio",
-        "aria-checked": t.score_0_10 === v ? "true" : "false", disabled: !t.errors_done, "data-v": v,
-        title: v + (anchor ? ": " + anchor[1] : "") + " (key " + (v === 10 ? TEN_KEY : v) + ")", text: String(v),
-        onclick: function () { setScore(v); } }));
-    })(v);
-    s2.appendChild(row);
-    var legend = el("div", { class: "legend" });
-    ANCHORS.slice().reverse().forEach(function (a) {
-      legend.appendChild(el("div", { class: t.score_0_10 === a[0] ? "on" : "" }, [el("b", { text: String(a[0]) }), el("span", { text: a[1] })]));
-    });
-    s2.appendChild(legend);
-    if (t.errors_done) s2.appendChild(el("p", { class: "small muted keyhint", html: "Keys: <kbd>0</kbd>&ndash;<kbd>9</kbd>, <kbd>" + TEN_KEY +
-      "</kbd> for 10, <kbd>&larr;</kbd><kbd>&rarr;</kbd> one step." }));
-    var strip = el("div", { class: "strip", title: "The four scores of this block" });
-    for (var m = 1; m <= 4; m++) (function (m) {
-      var tm = trState(cur, m, false);
-      if (tm && tm.score_0_10 != null) strip.appendChild(el("button", { class: "dot" + (m === n ? " on" : ""), style: "left:calc(.75rem + (100% - 1.5rem) * " + tm.score_0_10 / 10 + ")",
-        title: "Translation " + m + ": " + tm.score_0_10, text: String(m), onclick: function () { setActive(m); } }));
-    })(m);
-    s2.appendChild(el("div", { class: "small muted", text: "This block's four scores (0 left, 10 right)" }));
-    s2.appendChild(strip);
-    if (!t.errors_done) s2.appendChild(el("p", { class: "small muted", text: "Opens after you finish marking errors (step 1): press Enter." }));
-    p.appendChild(s2);
-
-    // step 3: answer check
-    var s3 = el("div", { class: "step" + (t.answer ? " done" : "") });
-    s3.appendChild(el("h3", {}, [el("span", { class: "n", text: "3" }), "Answer check"]));
-    s3.appendChild(el("p", { class: "q", html: "Is the correct option (<b>" + B().source.correct + "</b>) still correct and the only correct one?" }));
-    var seg = el("div", { class: "seg", role: "radiogroup" });
-    ANSWERS.forEach(function (a) {
-      seg.appendChild(el("button", { class: t.answer === a[0] ? "on" : "", role: "radio", "aria-checked": t.answer === a[0] ? "true" : "false",
-        title: a[1] + " (" + a[2] + ")", onclick: function () { setAnswer(a[0]); } }, [a[1] + " ", el("kbd", { text: a[2] })]));
-    });
-    s3.appendChild(seg);
-    p.appendChild(s3);
-
-    // comment
-    var s4 = el("div", { class: "step" });
-    s4.appendChild(el("h3", {}, ["Comment ", el("span", { class: "muted small", text: "(optional)" })]));
+    s4.appendChild(ul);
     var ta = el("textarea", { rows: 2, placeholder: "e.g. a better word for a medical term", "aria-label": "Comment" });
     ta.value = t.comment || "";
-    ta.addEventListener("input", function () { var tt = trState(cur, n, true); tt.comment = ta.value; changed(); renderTabs(); });
+    ta.addEventListener("input", function () { var tt = trState(cur, n, true); tt.comment = ta.value; changed(); });
     s4.appendChild(ta);
     p.appendChild(s4);
 
@@ -535,51 +508,35 @@
   }
   function nextIncomplete(n) { for (var k = 1; k <= 4; k++) { var m = ((n - 1 + k) % 4) + 1; if (!trComplete(trState(cur, m, false))) return m === n ? null : m; } return null; }
   function spanOrder(a, b) {
-    var order = function (p) { return p === "question" ? 0 : p === "statement" ? 99 : p.charCodeAt(0); };
+    var order = function (p) { return p === "question" || p === "prompt" ? 0 : p === "statement" ? 99 : p.charCodeAt(0); };
     return order(a.part) - order(b.part) || a.start - b.start;
   }
+
   /* ---------------- annotation actions ---------------- */
-  function errorsDone() {
-    var t = trState(cur, active, true);
-    if (!t.errors_done) { t.errors_done = true; t.errors_done_at = nowIso(); changed(); }
-    renderTabs(); renderPanel();
-  }
-  function setScore(v) {
-    var t = trState(cur, active, true);
-    if (!t.errors_done) { toast("Mark the errors first (or press Enter if there are none); then score."); return; }
-    v = Math.max(0, Math.min(10, Math.round(v)));
-    t.score_0_10 = v; t.score_at = nowIso(); changed(); renderTabs(); renderPanel();
-  }
-  function stepScoreTo(v) {
-    var t = trState(cur, active, false);
-    if (!t || !t.errors_done) { toast("Finish step 1 first: press Enter when you have marked all errors."); return; }
-    setScore(v);
-  }
-  function stepScore(d) {
-    var t = trState(cur, active, false);
-    if (!t || !t.errors_done) { toast("Finish step 1 first: press Enter when you have marked all errors."); return; }
-    setScore(t.score_0_10 == null ? (d > 0 ? 0 : 10) : t.score_0_10 + d);
-  }
-  function setAnswer(a) {
-    var t = trState(cur, active, true);
-    t.answer = a; t.answer_at = nowIso(); changed(); renderTabs(); renderPanel();
+  var advanceTimer = null;
+  function setAnswer(field, v) {
+    var t = trState(cur, active, true), was = trComplete(t);
+    t[field] = v; t[field + "_at"] = nowIso(); changed(); renderTabs(); renderPanel();
+    clearTimeout(advanceTimer);
+    if (!was && trComplete(t)) {          // all three answered: move on to the next unfinished translation
+      var nx = nextIncomplete(active), from = active;
+      advanceTimer = setTimeout(function () {
+        if (active !== from) return;
+        if (nx) { setActive(nx); toast("Translation " + from + " done: now translation " + nx, 1500); }
+        else toast("Block " + cur + " complete. Press j or Next for the next block.", 2500);
+      }, 450);
+    }
   }
   var spanSeq = 0;
   function newId() { spanSeq++; return Date.now().toString(36) + "-" + spanSeq; }
-  function addSpan(n, part, start, end, text, severity, missing) {
+  function addSpan(n, part, start, end, text) {
     var t = trState(cur, n, true);
-    var s = { id: newId(), part: part, start: start, end: end, text: text, severity: severity, missing: !!missing, created_at: nowIso() };
+    var s = { id: newId(), part: part, start: start, end: end, text: text, created_at: nowIso() };
     t.spans.push(s);
     undoStack.push({ block: cur, n: n, op: "add", id: s.id });
     changed(); renderTabs(); renderTexts(); renderPanel();
   }
   function findSpan(n, id) { var a = spansOf(n); for (var i = 0; i < a.length; i++) if (a[i].id === id) return [a, i]; return null; }
-  function setSeverity(n, id, sev) {
-    var f = findSpan(n, id); if (!f) return;
-    var s = f[0][f[1]]; if (s.severity === sev) return;
-    undoStack.push({ block: cur, n: n, op: "sev", id: id, prev: s.severity });
-    s.severity = sev; s.changed_at = nowIso(); changed(); renderTabs(); renderTexts(); renderPanel();
-  }
   function removeSpan(n, id) {
     var f = findSpan(n, id); if (!f) return;
     var s = f[0].splice(f[1], 1)[0];
@@ -591,7 +548,6 @@
     if (!undoForBlock()) { toast("Nothing to undo in this block."); return; }
     var u = undoStack.pop(), arr = spansOf(u.n), f;
     if (u.op === "add") { f = findSpan(u.n, u.id); if (f) arr.splice(f[1], 1); }
-    else if (u.op === "sev") { f = findSpan(u.n, u.id); if (f) arr[f[1]].severity = u.prev; }
     else if (u.op === "del") arr.splice(u.index, 0, u.span);
     if (u.n !== active) active = u.n;
     changed(); renderTabs(); renderTexts(); renderPanel();
@@ -611,7 +567,7 @@
     var r = sel.getRangeAt(0);
     var a = closestTxt(r.startContainer), b = closestTxt(r.endContainer);
     if (!a && !b) return null;
-    if (!a || !b || a !== b) return { error: "Please select within one line (the question, one option or the statement). Mark each line separately." };
+    if (!a || !b || a !== b) return { error: "Please select within one line (the question, one option, the statement or the request)." };
     var n = +a.getAttribute("data-n"), part = a.getAttribute("data-part"), text = partText(n, part);
     var pre = document.createRange(); pre.selectNodeContents(a); pre.setEnd(r.startContainer, r.startOffset);
     var start = pre.toString().length;
@@ -622,7 +578,7 @@
     while (end < text.length && MARK_RE.test(text.charAt(end))) end++;
     if (start > 0 && /[\udc00-\udfff]/.test(text.charAt(start))) start--;  // nor a surrogate pair
     if (end < text.length && /[\udc00-\udfff]/.test(text.charAt(end))) end++;
-    if (window.Intl && Intl.Segmenter) {                                    // snap to whole words (ESA marks words or phrases)
+    if (window.Intl && Intl.Segmenter) {                                    // snap to whole words
       try {
         var segs = new Intl.Segmenter(LANG, { granularity: "word" }).segment(text);
         var s0 = segs.containing(start), e0 = segs.containing(Math.max(start, end - 1));
@@ -633,8 +589,8 @@
     while (start < end && /\s/.test(text.charAt(start))) start++;
     while (end > start && /\s/.test(text.charAt(end - 1))) end--;
     if (start >= end) return null;
-    var clash = spansOf(n).some(function (s) { return !s.missing && s.part === part && s.start < end && start < s.end; });
-    if (clash) return { error: "That overlaps an error you already marked. Click the highlight to change or remove it." };
+    var clash = spansOf(n).some(function (s) { return s.part === part && s.start < end && start < s.end; });
+    if (clash) return { error: "That overlaps a part you already highlighted. Click the highlight to remove it." };
     return { n: n, part: part, start: start, end: end, text: text.slice(start, end), rect: r.getBoundingClientRect() };
   }
   function closestTxt(node) {
@@ -642,18 +598,18 @@
     while (e && e !== document.body) { if (e.classList && e.classList.contains("txt") && e.hasAttribute("data-n")) return e; e = e.parentElement; }
     return null;
   }
-  function markPending(sev) {
+  function markPending() {
     var p = pending || readSelection();
-    if (!p) { toast("Select the wrong words in a translation first."); return; }
+    if (!p) { toast("Select the problem words in a translation first."); return; }
     if (p.error) { toast(p.error, 4500); return; }
     if (p.n !== active) active = p.n;
     window.getSelection().removeAllRanges(); pending = null; hidePop();
-    addSpan(p.n, p.part, p.start, p.end, p.text, sev, false);
+    addSpan(p.n, p.part, p.start, p.end, p.text);
   }
 
   /* popover */
   var pop = $("#pop");
-  function hidePop() { pop.hidden = true; pop.innerHTML = ""; }
+  function hidePop() { pop.hidden = true; pop.innerHTML = ""; pop.removeAttribute("data-span"); }
   function placePop(rect) {
     pop.hidden = false;
     var w = pop.offsetWidth, x = rect.left + rect.width / 2 - w / 2 + window.scrollX, y = rect.bottom + 8 + window.scrollY;
@@ -661,30 +617,15 @@
     pop.style.left = x + "px"; pop.style.top = y + "px";
   }
   function popForSelection(p) {
-    pop.innerHTML = "";
-    pop.appendChild(el("button", { class: "minor", type: "button", html: "Minor <kbd>m</kbd>", onclick: function () { markPending("minor"); } }));
-    pop.appendChild(el("button", { class: "major", type: "button", html: "Major <kbd>M</kbd>", onclick: function () { markPending("major"); } }));
+    pop.innerHTML = ""; pop.removeAttribute("data-span");
+    pop.appendChild(el("button", { class: "hl", type: "button", html: "Highlight problem <kbd>h</kbd>", onclick: function () { markPending(); } }));
     placePop(p.rect);
   }
   function popForSpan(n, id, rect) {
-    var f = findSpan(n, id); if (!f) return; var s = f[0][f[1]];
     pop.innerHTML = "";
-    pop.appendChild(el("span", { class: "hint", text: s.missing ? "Missing content:" : "Error:" }));
-    pop.appendChild(el("button", { class: "minor" + (s.severity === "minor" ? " cur" : ""), type: "button", html: "Minor <kbd>m</kbd>", onclick: function () { hidePop(); setSeverity(n, id, "minor"); } }));
-    pop.appendChild(el("button", { class: "major" + (s.severity === "major" ? " cur" : ""), type: "button", html: "Major <kbd>M</kbd>", onclick: function () { hidePop(); setSeverity(n, id, "major"); } }));
+    pop.appendChild(el("span", { class: "hint", text: "Highlighted problem:" }));
     pop.appendChild(el("button", { type: "button", html: "Remove <kbd>Del</kbd>", onclick: function () { hidePop(); removeSpan(n, id); } }));
     pop.setAttribute("data-span", id); pop.setAttribute("data-n", n);
-    placePop(rect);
-  }
-  function popForMissing(n, part, rect) {
-    var ex = spansOf(n).filter(function (s) { return s.part === part && s.missing; })[0];
-    if (ex) { popForSpan(n, ex.id, rect); return; }
-    pop.innerHTML = "";
-    pop.appendChild(el("span", { class: "hint", text: "Missing from " + partLabel(part).toLowerCase() + ":" }));
-    var mk = function (sev) { return function () { hidePop(); if (active !== n) active = n; addSpan(n, part, partText(n, part).length, partText(n, part).length, "", sev, true); }; };
-    pop.appendChild(el("button", { class: "minor", type: "button", html: "Minor <kbd>m</kbd>", onclick: mk("minor") }));
-    pop.appendChild(el("button", { class: "major", type: "button", html: "Major <kbd>M</kbd>", onclick: mk("major") }));
-    pop.setAttribute("data-miss", part); pop.setAttribute("data-n", n); pop.removeAttribute("data-span");
     placePop(rect);
   }
   pop.addEventListener("mousedown", function (e) { e.preventDefault(); });  // keep the text selection while clicking
@@ -696,8 +637,8 @@
     clearTimeout(selTimer);
     selTimer = setTimeout(function () {
       var p = readSelection();
-      if (p && !p.error) { pending = p; pop.removeAttribute("data-span"); pop.removeAttribute("data-miss"); popForSelection(p); }
-      else { pending = p && p.error ? p : null; if (!pop.hasAttribute("data-span") && !pop.hasAttribute("data-miss")) hidePop(); }
+      if (p && !p.error) { pending = p; popForSelection(p); }
+      else { pending = p && p.error ? p : null; if (!pop.hasAttribute("data-span")) hidePop(); }
     }, 120);
   });
   $("#texts").addEventListener("click", function (e) {
@@ -708,19 +649,11 @@
       if (n !== active) { active = n; renderTabs(); renderTexts(); renderPanel(); m = $('mark[data-id="' + m.getAttribute("data-id") + '"]'); }
       popForSpan(n, m.getAttribute("data-id"), m.getBoundingClientRect()); return;
     }
-    var b = e.target.closest("button.miss");
-    if (b) {
-      var bn = +b.getAttribute("data-n");
-      if (bn !== active) { active = bn; renderTabs(); renderTexts(); renderPanel(); b = $('button.miss[data-n="' + bn + '"][data-part="' + e.target.closest("button.miss").getAttribute("data-part") + '"]'); }
-      popForMissing(bn, b.getAttribute("data-part"), b.getBoundingClientRect()); return;
-    }
     var c = e.target.closest(".cell.tr");
     if (c && (!sel || sel.isCollapsed) && +c.getAttribute("data-n") !== active) setActive(+c.getAttribute("data-n"));
   });
   document.addEventListener("mousedown", function (e) {
-    if (!pop.hidden && !pop.contains(e.target) && !e.target.closest("mark.err") && !e.target.closest("button.miss")) {
-      if (pop.hasAttribute("data-span") || pop.hasAttribute("data-miss")) hidePop();
-    }
+    if (!pop.hidden && !pop.contains(e.target) && !e.target.closest("mark.err") && pop.hasAttribute("data-span")) hidePop();
   });
 
   /* ---------------- navigation ---------------- */
@@ -728,9 +661,9 @@
     var out = [];
     for (var n = 1; n <= 4; n++) {
       var t = trState(cur, n, false), need = [];
-      if (!t || !t.errors_done) need.push("errors done");
-      if (!t || t.score_0_10 == null) need.push("score");
-      if (!t || !t.answer) need.push("answer check");
+      if (!t || !t.fluency) need.push("fluency");
+      if (!t || !t.meaning) need.push("meaning");
+      if (!t || !t.task) need.push(isRequest() ? "request check" : "answer check");
       if (need.length) out.push([n, need]);
     }
     return out;
@@ -787,7 +720,7 @@
     if (!S.reviewer) { toast("Please fill in “About you” first."); return; }
     persist();
     if (!S.uid) S.uid = randomId();
-    var out = { format: "esa-review-export", format_version: 1, app_version: APP_VERSION, lang: LANG, data_version: DATA.version, uid: S.uid,
+    var out = { format: "esa-review-export", format_version: 2, protocol: "three-questions-v1", design: DATA.design, app_version: APP_VERSION, lang: LANG, data_version: DATA.version, uid: S.uid,
       offset_unit: "utf16", exported_at: nowIso(), timezone_offset_min: -new Date().getTimezoneOffset(),
       created_at: S.created_at, updated_at: S.updated_at, reviewer: S.reviewer,
       progress: { blocks_complete: doneCount(), blocks_total: DATA.blocks.length }, blocks: S.blocks };
@@ -844,7 +777,7 @@
 
   /* ---------------- keyboard ---------------- */
   document.addEventListener("keydown", function (e) {
-    var tag = (e.target && e.target.tagName) || "", typing = /INPUT|TEXTAREA|SELECT/.test(tag) && e.target.type !== "range" && e.target.type !== "checkbox";
+    var tag = (e.target && e.target.tagName) || "", typing = /INPUT|TEXTAREA|SELECT/.test(tag) && e.target.type !== "checkbox";
     if ((e.ctrlKey || e.metaKey) && (e.key === "s" || e.key === "S")) { e.preventDefault(); doExport(); return; }
     if (blockedByOtherTab) return;
     if (e.key === "Escape") { if (!pop.hidden) { hidePop(); window.getSelection().removeAllRanges(); pending = null; } return; }
@@ -856,28 +789,17 @@
     if ((e.ctrlKey || e.metaKey) && (e.key === "z" || e.key === "Z")) { e.preventDefault(); undo(); return; }
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     var k = e.key;
-    if (!pop.hidden && pop.hasAttribute("data-span")) {     // a highlight's chooser is open
-      var id = pop.getAttribute("data-span"), pn = +pop.getAttribute("data-n");
-      if (k === "m") { e.preventDefault(); hidePop(); setSeverity(pn, id, "minor"); return; }
-      if (k === "M") { e.preventDefault(); hidePop(); setSeverity(pn, id, "major"); return; }
-      if (k === "Delete" || k === "Backspace") { e.preventDefault(); hidePop(); removeSpan(pn, id); return; }
+    if (!pop.hidden && pop.hasAttribute("data-span") && (k === "Delete" || k === "Backspace")) {
+      e.preventDefault(); var id = pop.getAttribute("data-span"), pn = +pop.getAttribute("data-n"); hidePop(); removeSpan(pn, id); return;
     }
-    if (!pop.hidden && pop.hasAttribute("data-miss") && (k === "m" || k === "M")) {
-      e.preventDefault(); var mp = pop.getAttribute("data-miss"), mn = +pop.getAttribute("data-n"); hidePop();
-      addSpan(mn, mp, partText(mn, mp).length, partText(mn, mp).length, "", k === "M" ? "major" : "minor", true); return;
-    }
-    if (k === "m" || k === "M") { e.preventDefault(); markPending(k === "M" ? "major" : "minor"); return; }
+    if (k === "h") { e.preventDefault(); markPending(); return; }
     if (e.shiftKey && /^Digit[1-4]$/.test(e.code)) { e.preventDefault(); setActive(+e.code.slice(5)); return; }
     if (k === "[" || k === "]") { e.preventDefault(); setActive(((active - 1 + (k === "]" ? 1 : 3)) % 4) + 1); return; }
-    if (/^[0-9]$/.test(k)) { e.preventDefault(); stepScoreTo(+k); scoreToast(); return; }
-    if (k === TEN_KEY) { e.preventDefault(); stepScoreTo(10); scoreToast(); return; }
-    if (k === "ArrowRight" || k === "ArrowLeft") { e.preventDefault(); stepScore(k === "ArrowRight" ? 1 : -1); scoreToast(); return; }
+    if (!e.shiftKey && KEYMAP[k]) { e.preventDefault(); setAnswer(KEYMAP[k][0], KEYMAP[k][1]); return; }
     if (k === "c") { compare = !compare; prefs.compare = compare; savePrefs(); $("#compare").checked = compare; renderTexts(); return; }
-    if (k === "Enter" && !e.target.closest("button")) { e.preventDefault(); errorsDone(); return; }
-    if (k === "y" || k === "n" || k === "u") { e.preventDefault(); setAnswer(k === "y" ? "yes" : k === "n" ? "no" : "unsure"); return; }
     if (k === "z") { e.preventDefault(); undo(); return; }
-    if (k === "j" || k === "PageDown") { e.preventDefault(); nextBlock(); return; }
-    if (k === "k" || k === "PageUp") { e.preventDefault(); prevBlock(); return; }
+    if (k === "j" || k === "ArrowRight" || k === "PageDown") { e.preventDefault(); nextBlock(); return; }
+    if (k === "k" || k === "ArrowLeft" || k === "PageUp") { e.preventDefault(); prevBlock(); return; }
     if (k === "b") { e.preventDefault(); openBlocks(); return; }
     if (k === "i") { e.preventDefault(); openInstr(); return; }
     if (k === "?") { e.preventDefault(); $("#dlg-help").showModal(); return; }
@@ -885,11 +807,6 @@
     if (k === "+" || k === "=") { fontSize(1); return; }
     if (k === "-") { fontSize(-1); return; }
   });
-
-  function scoreToast() {
-    var t = trState(cur, active, false);
-    if (t && t.errors_done && t.score_0_10 != null) toast("Translation " + active + ": score " + t.score_0_10, 1400);
-  }
 
   /* ---------------- one tab per language: a second tab would overwrite the first one's saved work ---------------- */
   var blockedByOtherTab = false, tabId = randomId(), chan = null, claimPending = false, persistAfterClaim = false, toldBusy = {};

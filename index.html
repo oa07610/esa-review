@@ -4,12 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Translation Review</title>
-<meta name="description" content="Native-speaker review of medical exam translations (error span annotation).">
+<meta name="description" content="Native-speaker review of translations of medical exam questions and requests.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link id="font-base" rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap">
 <link id="font-lang" rel="stylesheet" href="">
-<link rel="stylesheet" href="app.css?v=1.0.1">
+<link rel="stylesheet" href="app.css?v=2.0.0">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231f5f5b'/%3E%3Cpath d='M8 11h16M8 16h10M8 21h13' stroke='%23fff' stroke-width='2.6' stroke-linecap='round'/%3E%3C/svg%3E">
 </head>
 <body>
@@ -26,7 +26,7 @@
   </div>
   <div class="tb-progress" id="tb-progress" title="Blocks completed">
     <div class="bar"><div class="fill" id="tb-fill"></div></div>
-    <span id="tb-count">0 / 45</span>
+    <span id="tb-count"></span>
   </div>
   <nav class="tb-right">
     <button class="btn ghost" id="btn-blocks" title="All blocks (b)">Blocks</button>
@@ -52,19 +52,19 @@
   <!-- onboarding -->
   <section id="view-onboard" class="view narrow" hidden>
     <ol class="steps" id="ob-steps">
-      <li data-step="1">Welcome</li><li data-step="2">How to annotate</li><li data-step="3">About you</li>
+      <li data-step="1">Welcome</li><li data-step="2">How to review</li><li data-step="3">About you</li>
     </ol>
     <div class="ob-page" data-page="1">
       <h1>Welcome</h1>
       <p class="lede">Thank you for helping. You will check how well four different translations into <strong class="ob-lang"></strong>
-        render medical exam questions written in English.</p>
+        render English medical exam questions and requests.</p>
       <ul class="facts">
-        <li><strong>45 blocks</strong>, one exam question each, with four translations. About 2 to 3 hours in total.</li>
+        <li><strong>33 blocks</strong> (an exam question or a short request), each with four translations, and three quick questions per translation. About 1 to 1.5 hours in total.</li>
         <li>You can stop at any time. Your work is <strong>saved automatically in this browser</strong> and is here when you come back on the same device and browser.</li>
         <li>When you finish (or want a backup) press <strong>Export</strong>. It downloads a file; <strong>send that file to the person who invited you</strong>. Nothing is sent over the internet by this page.</li>
         <li>To move to another device, export here and use <em>More &rarr; Resume from a file</em> there.</li>
       </ul>
-      <div class="ob-nav"><span></span><button class="btn primary" data-go="2">Next: how to annotate &rarr;</button></div>
+      <div class="ob-nav"><span></span><button class="btn primary" data-go="2">Next: how to review &rarr;</button></div>
     </div>
     <div class="ob-page" data-page="2" hidden>
       <div id="ob-instructions"></div>
@@ -100,7 +100,7 @@
           </select></label>
         <label class="prof-other" hidden>Please specify<input name="profession_other" maxlength="80"></label>
         <label class="check"><input type="checkbox" name="consent" required>
-          <span>I agree that my annotations and the answers above may be used, without my name, in a research paper and its released data. <span class="req">*</span></span></label>
+          <span>I agree that my ratings and the answers above may be used, without my name, in a research paper and its released data. <span class="req">*</span></span></label>
         <label class="check"><input type="checkbox" name="no_mt" required>
           <span>I will not use machine translation or AI tools while reviewing. <span class="req">*</span></span></label>
         <p class="form-err" id="bg-err" hidden></p>
@@ -112,9 +112,9 @@
   <!-- annotation -->
   <section id="view-block" class="view wide" hidden>
     <div class="blk-head">
-      <button class="btn" id="btn-prev" title="Previous block (k)">&larr;</button>
+      <button class="btn" id="btn-prev" title="Previous block (k or &larr;)">&larr;</button>
       <div class="blk-title"><span id="blk-num"></span><span class="muted" id="blk-kind"></span></div>
-      <button class="btn primary" id="btn-next" title="Next block (j)">Next &rarr;</button>
+      <button class="btn primary" id="btn-next" title="Next block (j or &rarr;)">Next &rarr;</button>
     </div>
     <div class="tabs-row">
       <div class="tabs" id="tabs" role="tablist"></div>
@@ -134,29 +134,27 @@
 <dialog id="dlg-help" class="dlg">
   <h2>Keyboard shortcuts</h2>
   <table class="keys">
+    <tr><th colspan="2">Questions (for the translation you are working on)</th></tr>
+    <tr><td><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd></td><td>Fluency: yes / minor issues / no</td></tr>
+    <tr><td><kbd>q</kbd> <kbd>w</kbd> <kbd>e</kbd></td><td>Meaning: fully / minor change / meaning changed</td></tr>
+    <tr><td><kbd>y</kbd> <kbd>n</kbd> <kbd>u</kbd></td><td>Task check: yes / no / unsure</td></tr>
+    <tr><td colspan="2" class="muted small">When all three are answered, the next translation opens by itself.</td></tr>
     <tr><th colspan="2">Translations</th></tr>
     <tr><td><kbd>Shift</kbd>+<kbd>1</kbd>&ndash;<kbd>4</kbd></td><td>Work on translation 1&ndash;4</td></tr>
     <tr><td><kbd>[</kbd> <kbd>]</kbd></td><td>Previous / next translation</td></tr>
     <tr><td><kbd>c</kbd></td><td>Compare all four side by side / one at a time</td></tr>
-    <tr><th colspan="2">Errors (select text first)</th></tr>
-    <tr><td><kbd>m</kbd></td><td>Mark the selected text as a <b>minor</b> error</td></tr>
-    <tr><td><kbd>Shift</kbd>+<kbd>M</kbd></td><td>Mark the selected text as a <b>major</b> error</td></tr>
-    <tr><td>click a highlight</td><td>Change its severity or remove it</td></tr>
-    <tr><td>click <span class="miss demo">[missing]</span></td><td>Something is missing from that line</td></tr>
-    <tr><td><kbd>z</kbd> / <kbd>Ctrl</kbd>+<kbd>Z</kbd></td><td>Undo the last error change</td></tr>
-    <tr><th colspan="2">Score and answer check</th></tr>
-    <tr><td><kbd>Enter</kbd></td><td>Done marking errors: unlock the score</td></tr>
-    <tr><td><kbd>0</kbd>&ndash;<kbd>9</kbd>, <kbd>p</kbd></td><td>Score 0&ndash;9; <kbd>p</kbd> (&ldquo;perfect&rdquo;) for 10</td></tr>
-    <tr><td><kbd>&larr;</kbd> <kbd>&rarr;</kbd></td><td>Score one step down / up</td></tr>
-    <tr><td><kbd>y</kbd> <kbd>n</kbd> <kbd>u</kbd></td><td>Answer check: yes / no / unsure</td></tr>
+    <tr><th colspan="2">Optional highlighting</th></tr>
+    <tr><td>select text, <kbd>h</kbd></td><td>Highlight the wrong part</td></tr>
+    <tr><td>click a highlight</td><td>Remove it</td></tr>
+    <tr><td><kbd>z</kbd> / <kbd>Ctrl</kbd>+<kbd>Z</kbd></td><td>Undo the last highlight change</td></tr>
     <tr><th colspan="2">Moving around</th></tr>
-    <tr><td><kbd>j</kbd> or <kbd>PgDn</kbd></td><td>Next block (when this one is complete)</td></tr>
-    <tr><td><kbd>k</kbd> or <kbd>PgUp</kbd></td><td>Previous block</td></tr>
+    <tr><td><kbd>j</kbd> or <kbd>&rarr;</kbd></td><td>Next block (when this one is complete)</td></tr>
+    <tr><td><kbd>k</kbd> or <kbd>&larr;</kbd></td><td>Previous block</td></tr>
     <tr><td><kbd>b</kbd></td><td>List of all blocks</td></tr>
     <tr><td><kbd>i</kbd> &middot; <kbd>?</kbd></td><td>Instructions &middot; this list</td></tr>
     <tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>Export (download your answers)</td></tr>
     <tr><td><kbd>t</kbd> &middot; <kbd>+</kbd> <kbd>-</kbd></td><td>Light/dark &middot; text size</td></tr>
-    <tr><td><kbd>Esc</kbd></td><td>Close a window or the severity chooser</td></tr>
+    <tr><td><kbd>Esc</kbd></td><td>Close a window or the highlight button</td></tr>
   </table>
   <form method="dialog"><button class="btn primary">Close</button></form>
 </dialog>
@@ -187,7 +185,7 @@
 </dialog>
 
 <dialog id="dlg-done" class="dlg">
-  <h2>All 45 blocks complete. Thank you!</h2>
+  <h2>All blocks complete. Thank you!</h2>
   <p>Please press <strong>Export</strong> and send the downloaded file to the person who invited you. Your work is only on this device until you do.</p>
   <div class="row-btns"><button class="btn primary big" id="btn-export-done">Export my answers</button></div>
   <form method="dialog"><button class="btn">Close</button></form>
@@ -200,6 +198,6 @@
   <form method="dialog"><button class="btn">Later</button></form>
 </dialog>
 
-<script src="app.js?v=1.0.1"></script>
+<script src="app.js?v=2.0.0"></script>
 </body>
 </html>
