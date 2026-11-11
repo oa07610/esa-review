@@ -2,7 +2,7 @@
  * Answers are kept in this browser (localStorage) and leave it only when the reviewer exports a file. */
 (function () {
   "use strict";
-  var APP_VERSION = "1.0.0";
+  var APP_VERSION = "1.0.1";
   var LANGS = {
     zh: { en: "Chinese (Simplified)", native: "中文（简体）", font: "Noto+Sans+SC" },
     vi: { en: "Vietnamese", native: "Tiếng Việt", font: null },
@@ -68,7 +68,11 @@
   function newState() {
     return { format: "esa-review-state", lang: LANG, data_version: DATA.version, app_version: APP_VERSION,
       created_at: nowIso(), updated_at: null, exported_at: null, changes_since_export: 0, done_at_export: 0,
-      reviewer: null, current: 1, blocks: {} };
+      reviewer: null, current: 1, blocks: {}, uid: randomId() };
+  }
+  function randomId() {
+    try { var a = new Uint32Array(2); window.crypto.getRandomValues(a); return a[0].toString(36) + a[1].toString(36); }
+    catch (e) { return Math.random().toString(36).slice(2) + Date.now().toString(36); }
   }
   function blockState(b, create) {
     var k = String(b);
@@ -101,7 +105,10 @@
   function doneCount() { var c = 0; for (var b = 1; b <= DATA.blocks.length; b++) if (blockComplete(b)) c++; return c; }
 
   function persist() {
+    if (blockedByOtherTab) return;
+    if (claimPending) { persistAfterClaim = true; return; }   // wait until no other tab has answered the claim
     S.updated_at = S.updated_at || nowIso();
+    S.writer = tabId;
     lsSet(stateKey(LANG), JSON.stringify(S));
   }
   function changed() {             // an annotation changed: mark, autosave soon, refresh chrome
@@ -237,10 +244,10 @@
     });
     show("#view-start");
   }
-  function go(lang) {
+  function go(lang, urlOnly) {
     var u = new URL(window.location.href); u.searchParams.set("lang", lang);
     window.history.replaceState(null, "", u.toString());
-    loadLang(lang);
+    if (!urlOnly) loadLang(lang);
   }
 
   function loadLang(lang, then) {
@@ -261,6 +268,7 @@
         $("#version-warn").textContent = "The review texts were updated since you started. Please export your work and contact the person who invited you before continuing.";
       }
       if (!S) S = newState();
+      claimTab(lang);
       var pill = $("#tb-lang"); pill.innerHTML = "";
       pill.appendChild(document.createTextNode(LANGS[lang].en + " · "));
       pill.appendChild(el("span", { class: "nat", lang: lang, dir: d.dir, text: LANGS[lang].native }));
@@ -680,6 +688,7 @@
     placePop(rect);
   }
   pop.addEventListener("mousedown", function (e) { e.preventDefault(); });  // keep the text selection while clicking
+  pop.addEventListener("pointerdown", function (e) { e.preventDefault(); });
 
   var selTimer = null;
   document.addEventListener("selectionchange", function () {
@@ -777,7 +786,8 @@
     if (!S || !DATA) return;
     if (!S.reviewer) { toast("Please fill in “About you” first."); return; }
     persist();
-    var out = { format: "esa-review-export", format_version: 1, app_version: APP_VERSION, lang: LANG, data_version: DATA.version,
+    if (!S.uid) S.uid = randomId();
+    var out = { format: "esa-review-export", format_version: 1, app_version: APP_VERSION, lang: LANG, data_version: DATA.version, uid: S.uid,
       offset_unit: "utf16", exported_at: nowIso(), timezone_offset_min: -new Date().getTimezoneOffset(),
       created_at: S.created_at, updated_at: S.updated_at, reviewer: S.reviewer,
       progress: { blocks_complete: doneCount(), blocks_total: DATA.blocks.length }, blocks: S.blocks };
@@ -808,11 +818,12 @@
         S = newState();
         S.created_at = x.created_at || S.created_at; S.updated_at = x.updated_at; S.reviewer = x.reviewer; S.blocks = x.blocks;
         S.exported_at = x.exported_at; S.changes_since_export = 0; S.done_at_export = x.progress.blocks_complete;
+        if (x.uid) S.uid = x.uid;
         S.current = firstOpenBlock(); persist();
         $("#dlg-menu").close(); toast("Loaded. Continuing at block " + S.current + ".");
         openBlock(S.current);
       };
-      if (x.lang !== LANG) { go(x.lang); loadLang(x.lang, apply); } else apply();
+      if (x.lang !== LANG) { go(x.lang, true); loadLang(x.lang, apply); } else apply();
     };
     rd.readAsText(f, "utf-8");
   });
@@ -835,6 +846,7 @@
   document.addEventListener("keydown", function (e) {
     var tag = (e.target && e.target.tagName) || "", typing = /INPUT|TEXTAREA|SELECT/.test(tag) && e.target.type !== "range" && e.target.type !== "checkbox";
     if ((e.ctrlKey || e.metaKey) && (e.key === "s" || e.key === "S")) { e.preventDefault(); doExport(); return; }
+    if (blockedByOtherTab) return;
     if (e.key === "Escape") { if (!pop.hidden) { hidePop(); window.getSelection().removeAllRanges(); pending = null; } return; }
     if ($("#view-block").hidden || document.querySelector("dialog[open]")) {
       if (!typing && e.key === "?" && !$("#view-block").hidden) $("#dlg-help").showModal();
@@ -857,9 +869,9 @@
     if (k === "m" || k === "M") { e.preventDefault(); markPending(k === "M" ? "major" : "minor"); return; }
     if (e.shiftKey && /^Digit[1-4]$/.test(e.code)) { e.preventDefault(); setActive(+e.code.slice(5)); return; }
     if (k === "[" || k === "]") { e.preventDefault(); setActive(((active - 1 + (k === "]" ? 1 : 3)) % 4) + 1); return; }
-    if (/^[0-9]$/.test(k)) { e.preventDefault(); stepScoreTo(+k); return; }
-    if (k === TEN_KEY) { e.preventDefault(); stepScoreTo(10); return; }
-    if (k === "ArrowRight" || k === "ArrowLeft") { e.preventDefault(); stepScore(k === "ArrowRight" ? 1 : -1); return; }
+    if (/^[0-9]$/.test(k)) { e.preventDefault(); stepScoreTo(+k); scoreToast(); return; }
+    if (k === TEN_KEY) { e.preventDefault(); stepScoreTo(10); scoreToast(); return; }
+    if (k === "ArrowRight" || k === "ArrowLeft") { e.preventDefault(); stepScore(k === "ArrowRight" ? 1 : -1); scoreToast(); return; }
     if (k === "c") { compare = !compare; prefs.compare = compare; savePrefs(); $("#compare").checked = compare; renderTexts(); return; }
     if (k === "Enter" && !e.target.closest("button")) { e.preventDefault(); errorsDone(); return; }
     if (k === "y" || k === "n" || k === "u") { e.preventDefault(); setAnswer(k === "y" ? "yes" : k === "n" ? "no" : "unsure"); return; }
@@ -872,6 +884,42 @@
     if (k === "t") { toggleTheme(); return; }
     if (k === "+" || k === "=") { fontSize(1); return; }
     if (k === "-") { fontSize(-1); return; }
+  });
+
+  function scoreToast() {
+    var t = trState(cur, active, false);
+    if (t && t.errors_done && t.score_0_10 != null) toast("Translation " + active + ": score " + t.score_0_10, 1400);
+  }
+
+  /* ---------------- one tab per language: a second tab would overwrite the first one's saved work ---------------- */
+  var blockedByOtherTab = false, tabId = randomId(), chan = null, claimPending = false, persistAfterClaim = false, toldBusy = {};
+  try { chan = new BroadcastChannel("esa-review"); } catch (e) { chan = null; }
+  function blockTab() {
+    if (blockedByOtherTab) return;
+    blockedByOtherTab = true;
+    var w = $("#version-warn");
+    w.hidden = false; w.className = "banner warn tab-block";
+    w.textContent = "This review is open in another tab or window. To keep your work safe, this tab has stopped saving. " +
+      "Please close this tab and continue in the other one (or close the other one and reload this page).";
+    document.body.classList.add("blocked");
+  }
+  function claimTab(lang) {
+    if (!chan) return;
+    claimPending = true;
+    chan.postMessage({ type: "hello", lang: lang, tab: tabId });
+    setTimeout(function () { claimPending = false; if (persistAfterClaim && !blockedByOtherTab) { persistAfterClaim = false; persist(); } }, 600);
+  }
+  if (chan) chan.onmessage = function (ev) {
+    var m = ev.data || {};
+    if (!LANG || m.lang !== LANG || m.tab === tabId) return;
+    if (m.type === "hello" && !blockedByOtherTab) { toldBusy[m.tab] = 1; chan.postMessage({ type: "busy", lang: LANG, tab: tabId, to: m.tab }); }
+    if (m.type === "busy" && m.to === tabId) blockTab();
+  };
+  window.addEventListener("storage", function (e) {     // another tab wrote this language's state
+    if (!LANG || e.key !== stateKey(LANG) || e.newValue == null || blockedByOtherTab) return;
+    var w = null; try { w = JSON.parse(e.newValue).writer; } catch (err) { w = null; }
+    if (w && toldBusy[w]) persist();       // a newer tab we already stopped wrote once: put our copy back
+    else blockTab();
   });
 
   /* ---------------- toast ---------------- */

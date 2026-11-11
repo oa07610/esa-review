@@ -246,8 +246,11 @@ mark.err, .miss { scroll-margin: 8rem 0; }
 .sw.done { background: var(--gold-bg); border-color: var(--gold-line); } .sw.part { background: var(--warn-bg); }
 .menu-list { display: grid; gap: .5rem; }
 
-/* narrower screens (tablets) */
-@media (max-width: 1180px) {
+.tab-block { font-weight: 600; font-size: 1rem; position: sticky; top: 0; z-index: 40; }
+body.blocked main, body.blocked .topbar { pointer-events: none; opacity: .45; }
+@media (max-width: 1280px) { .workspace { grid-template-columns: minmax(0, 1fr) 320px; } }
+/* narrower screens (tablets in portrait) */
+@media (max-width: 1000px) {
   .workspace { grid-template-columns: minmax(0, 1fr); }
   .panel { position: static; max-height: none; }
 }
