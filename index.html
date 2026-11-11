@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Translation Review</title>
+<meta name="description" content="Native-speaker review of medical exam translations (error span annotation).">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link id="font-base" rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap">
+<link id="font-lang" rel="stylesheet" href="">
+<link rel="stylesheet" href="app.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231f5f5b'/%3E%3Cpath d='M8 11h16M8 16h10M8 21h13' stroke='%23fff' stroke-width='2.6' stroke-linecap='round'/%3E%3C/svg%3E">
+</head>
+<body>
+<div id="storage-warn" class="banner warn" hidden>
+  This browser is not saving your work (private window or blocked storage). Your answers live only in this tab:
+  <strong>export often</strong> (Ctrl+S) and keep the files.
+</div>
+<div id="version-warn" class="banner warn" hidden></div>
+
+<header class="topbar" id="topbar" hidden>
+  <div class="tb-left">
+    <span class="brand">Translation review</span>
+    <span class="lang-pill" id="tb-lang"></span>
+  </div>
+  <div class="tb-progress" id="tb-progress" title="Blocks completed">
+    <div class="bar"><div class="fill" id="tb-fill"></div></div>
+    <span id="tb-count">0 / 45</span>
+  </div>
+  <nav class="tb-right">
+    <button class="btn ghost" id="btn-blocks" title="All blocks (b)">Blocks</button>
+    <button class="btn ghost" id="btn-instr" title="Instructions (i)">Instructions</button>
+    <button class="btn ghost icon" id="btn-help" title="Keyboard shortcuts (?)">?</button>
+    <button class="btn ghost icon" id="btn-font-down" title="Smaller text (-)">A&minus;</button>
+    <button class="btn ghost icon" id="btn-font-up" title="Larger text (+)">A+</button>
+    <button class="btn ghost icon" id="btn-theme" title="Light / dark (t)">&#9680;</button>
+    <button class="btn ghost" id="btn-menu" title="Import, start over">More</button>
+    <button class="btn primary" id="btn-export" title="Download your answers (Ctrl+S)">Export<span class="badge" id="export-badge" hidden></span></button>
+  </nav>
+</header>
+
+<main id="app">
+  <!-- language choice -->
+  <section id="view-start" class="view narrow" hidden>
+    <h1>Translation review</h1>
+    <p class="lede">Native speakers check four translations of medical exam questions. Choose your language to begin.</p>
+    <div class="lang-grid" id="lang-grid"></div>
+    <p class="muted small">Already started on another device? Open your language, then use <em>More &rarr; Resume from a file</em>.</p>
+  </section>
+
+  <!-- onboarding -->
+  <section id="view-onboard" class="view narrow" hidden>
+    <ol class="steps" id="ob-steps">
+      <li data-step="1">Welcome</li><li data-step="2">How to annotate</li><li data-step="3">About you</li>
+    </ol>
+    <div class="ob-page" data-page="1">
+      <h1>Welcome</h1>
+      <p class="lede">Thank you for helping. You will check how well four different translations into <strong class="ob-lang"></strong>
+        render medical exam questions written in English.</p>
+      <ul class="facts">
+        <li><strong>45 blocks</strong>, one exam question each, with four translations. About 2 to 3 hours in total.</li>
+        <li>You can stop at any time. Your work is <strong>saved automatically in this browser</strong> and is here when you come back on the same device and browser.</li>
+        <li>When you finish (or want a backup) press <strong>Export</strong>. It downloads a file; <strong>send that file to the person who invited you</strong>. Nothing is sent over the internet by this page.</li>
+        <li>To move to another device, export here and use <em>More &rarr; Resume from a file</em> there.</li>
+      </ul>
+      <div class="ob-nav"><span></span><button class="btn primary" data-go="2">Next: how to annotate &rarr;</button></div>
+    </div>
+    <div class="ob-page" data-page="2" hidden>
+      <div id="ob-instructions"></div>
+      <div class="ob-nav"><button class="btn" data-go="1">&larr; Back</button><button class="btn primary" data-go="3">Next: about you &rarr;</button></div>
+    </div>
+    <div class="ob-page" data-page="3" hidden>
+      <h1>About you</h1>
+      <p class="muted">Reported in the paper only in summary form (for example, "three reviewers with medical training"). Please do not enter your name or email in the code field unless asked.</p>
+      <form id="bg-form" class="form" novalidate>
+        <label>Reviewer code <span class="req">*</span>
+          <input name="code" required maxlength="24" autocomplete="off" placeholder="the code you were given, e.g. R1">
+          <span class="hint">Letters, digits and dashes. It is part of your export file name.</span></label>
+        <label>Native language <span class="req">*</span>
+          <input name="native_language" required maxlength="60" list="lang-list"></label>
+        <datalist id="lang-list"></datalist>
+        <label>Other languages you read well
+          <input name="other_languages" maxlength="200" placeholder="e.g. English, Arabic"></label>
+        <label>Years of medical training or work <span class="req">*</span>
+          <input name="medical_years" required type="number" min="0" max="70" step="0.5" inputmode="decimal">
+          <span class="hint">Medical school, nursing, pharmacy, residency, clinical or medical-translation work. 0 if none.</span></label>
+        <label>Profession <span class="req">*</span>
+          <select name="profession" required>
+            <option value="">Choose&hellip;</option>
+            <option value="physician">Physician</option>
+            <option value="medical_student">Medical student</option>
+            <option value="nurse">Nurse</option>
+            <option value="pharmacist">Pharmacist</option>
+            <option value="other_health">Other health professional</option>
+            <option value="researcher">Researcher (biomedical / health)</option>
+            <option value="translator">Translator or linguist</option>
+            <option value="researcher_other">Researcher (other field) or student</option>
+            <option value="other">Other</option>
+          </select></label>
+        <label class="prof-other" hidden>Please specify<input name="profession_other" maxlength="80"></label>
+        <label class="check"><input type="checkbox" name="consent" required>
+          <span>I agree that my annotations and the answers above may be used, without my name, in a research paper and its released data. <span class="req">*</span></span></label>
+        <label class="check"><input type="checkbox" name="no_mt" required>
+          <span>I will not use machine translation or AI tools while reviewing. <span class="req">*</span></span></label>
+        <p class="form-err" id="bg-err" hidden></p>
+        <div class="ob-nav"><button type="button" class="btn" data-go="2">&larr; Back</button><button type="submit" class="btn primary">Start reviewing &rarr;</button></div>
+      </form>
+    </div>
+  </section>
+
+  <!-- annotation -->
+  <section id="view-block" class="view wide" hidden>
+    <div class="blk-head">
+      <button class="btn" id="btn-prev" title="Previous block (k)">&larr;</button>
+      <div class="blk-title"><span id="blk-num"></span><span class="muted" id="blk-kind"></span></div>
+      <button class="btn primary" id="btn-next" title="Next block (j)">Next &rarr;</button>
+    </div>
+    <div class="tabs-row">
+      <div class="tabs" id="tabs" role="tablist"></div>
+      <label class="toggle" title="Show all four translations side by side (c)"><input type="checkbox" id="compare"> Compare all</label>
+    </div>
+    <div class="workspace">
+      <div class="texts" id="texts"></div>
+      <aside class="panel" id="panel"></aside>
+    </div>
+  </section>
+</main>
+
+<!-- floating severity chooser -->
+<div id="pop" class="pop" hidden role="dialog" aria-label="Error severity"></div>
+<div id="toast" class="toast" hidden role="status" aria-live="polite"></div>
+
+<dialog id="dlg-help" class="dlg">
+  <h2>Keyboard shortcuts</h2>
+  <table class="keys">
+    <tr><th colspan="2">Translations</th></tr>
+    <tr><td><kbd>Shift</kbd>+<kbd>1</kbd>&ndash;<kbd>4</kbd></td><td>Work on translation 1&ndash;4</td></tr>
+    <tr><td><kbd>[</kbd> <kbd>]</kbd></td><td>Previous / next translation</td></tr>
+    <tr><td><kbd>c</kbd></td><td>Compare all four side by side / one at a time</td></tr>
+    <tr><th colspan="2">Errors (select text first)</th></tr>
+    <tr><td><kbd>m</kbd></td><td>Mark the selected text as a <b>minor</b> error</td></tr>
+    <tr><td><kbd>Shift</kbd>+<kbd>M</kbd></td><td>Mark the selected text as a <b>major</b> error</td></tr>
+    <tr><td>click a highlight</td><td>Change its severity or remove it</td></tr>
+    <tr><td>click <span class="miss demo">[missing]</span></td><td>Something is missing from that line</td></tr>
+    <tr><td><kbd>z</kbd> / <kbd>Ctrl</kbd>+<kbd>Z</kbd></td><td>Undo the last error change</td></tr>
+    <tr><th colspan="2">Score and answer check</th></tr>
+    <tr><td><kbd>Enter</kbd></td><td>Done marking errors: unlock the score</td></tr>
+    <tr><td><kbd>0</kbd>&ndash;<kbd>9</kbd>, <kbd>p</kbd></td><td>Score 0&ndash;9; <kbd>p</kbd> (&ldquo;perfect&rdquo;) for 10</td></tr>
+    <tr><td><kbd>&larr;</kbd> <kbd>&rarr;</kbd></td><td>Score one step down / up</td></tr>
+    <tr><td><kbd>y</kbd> <kbd>n</kbd> <kbd>u</kbd></td><td>Answer check: yes / no / unsure</td></tr>
+    <tr><th colspan="2">Moving around</th></tr>
+    <tr><td><kbd>j</kbd> or <kbd>PgDn</kbd></td><td>Next block (when this one is complete)</td></tr>
+    <tr><td><kbd>k</kbd> or <kbd>PgUp</kbd></td><td>Previous block</td></tr>
+    <tr><td><kbd>b</kbd></td><td>List of all blocks</td></tr>
+    <tr><td><kbd>i</kbd> &middot; <kbd>?</kbd></td><td>Instructions &middot; this list</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>Export (download your answers)</td></tr>
+    <tr><td><kbd>t</kbd> &middot; <kbd>+</kbd> <kbd>-</kbd></td><td>Light/dark &middot; text size</td></tr>
+    <tr><td><kbd>Esc</kbd></td><td>Close a window or the severity chooser</td></tr>
+  </table>
+  <form method="dialog"><button class="btn primary">Close</button></form>
+</dialog>
+
+<dialog id="dlg-instr" class="dlg wide-dlg">
+  <div id="instr-body"></div>
+  <form method="dialog"><button class="btn primary">Close</button></form>
+</dialog>
+
+<dialog id="dlg-blocks" class="dlg">
+  <h2>Blocks</h2>
+  <p class="muted small"><span class="sw done"></span> complete &nbsp; <span class="sw part"></span> started &nbsp; <span class="sw"></span> not started</p>
+  <div class="blk-grid" id="blk-grid"></div>
+  <form method="dialog"><button class="btn primary">Close</button></form>
+</dialog>
+
+<dialog id="dlg-menu" class="dlg">
+  <h2>More</h2>
+  <div class="menu-list">
+    <button class="btn" id="btn-import">Resume from a file&hellip;</button>
+    <p class="muted small">Loads an exported file (for example from another device). It replaces the progress saved in this browser for that language.</p>
+    <button class="btn" id="btn-edit-bg">Edit "About you"</button>
+    <button class="btn" id="btn-lang">Change language</button>
+    <button class="btn danger" id="btn-reset">Start over (erase this browser's copy)&hellip;</button>
+  </div>
+  <input type="file" id="file-import" accept=".json,application/json" hidden>
+  <form method="dialog"><button class="btn primary">Close</button></form>
+</dialog>
+
+<dialog id="dlg-done" class="dlg">
+  <h2>All 45 blocks complete. Thank you!</h2>
+  <p>Please press <strong>Export</strong> and send the downloaded file to the person who invited you. Your work is only on this device until you do.</p>
+  <div class="row-btns"><button class="btn primary big" id="btn-export-done">Export my answers</button></div>
+  <form method="dialog"><button class="btn">Close</button></form>
+</dialog>
+
+<dialog id="dlg-reminder" class="dlg">
+  <h2>Time for a backup</h2>
+  <p id="reminder-text"></p>
+  <div class="row-btns"><button class="btn primary" id="btn-export-rem">Export now</button></div>
+  <form method="dialog"><button class="btn">Later</button></form>
+</dialog>
+
+<script src="app.js"></script>
+</body>
+</html>
