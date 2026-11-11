@@ -2,7 +2,7 @@
  * Answers are kept in this browser (localStorage) and leave it only when the reviewer exports a file. */
 (function () {
   "use strict";
-  var APP_VERSION = "2.0.0";
+  var APP_VERSION = "2.0.1";
   var LANGS = {
     zh: { en: "Chinese (Simplified)", native: "中文（简体）", font: "Noto+Sans+SC" },
     vi: { en: "Vietnamese", native: "Tiếng Việt", font: null },
@@ -419,7 +419,7 @@
   function renderTexts() {
     var blk = B(), src = partsOf(blk.source), dir = DATA.dir, req = isRequest();
     var cols = compare ? [1, 2, 3, 4] : [active];
-    var g = el("div", { class: "grid" + (compare ? " cmp" : "") + (req ? " req" : "") });
+    var g = el("div", { class: "grid" + (compare ? " cmp" : "") + (req ? " reqblk" : "") });
     g.appendChild(el("div", { class: "hd" }));
     g.appendChild(el("div", { class: "hd", text: req ? "English request" : "English source" }));
     cols.forEach(function (n) {
