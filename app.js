@@ -2,7 +2,7 @@
  * Answers are kept in this browser (localStorage) and leave it only when the reviewer exports a file. */
 (function () {
   "use strict";
-  var APP_VERSION = "2.1.0";
+  var APP_VERSION = "2.2.0";
   var LANGS = {
     zh: { en: "Chinese (Simplified)", native: "中文（简体）", font: "Noto+Sans+SC" },
     vi: { en: "Vietnamese", native: "Tiếng Việt", font: null },
