@@ -2,7 +2,7 @@
  * Answers are kept in this browser (localStorage) and leave it only when the reviewer exports a file. */
 (function () {
   "use strict";
-  var APP_VERSION = "2.0.1";
+  var APP_VERSION = "2.1.0";
   var LANGS = {
     zh: { en: "Chinese (Simplified)", native: "中文（简体）", font: "Noto+Sans+SC" },
     vi: { en: "Vietnamese", native: "Tiếng Việt", font: null },
@@ -171,7 +171,7 @@
   /* ---------------- instructions ---------------- */
   function instructionsHtml() {
     var L = LANG ? LANGS[LANG].en : "your language";
-    var n = DATA ? DATA.blocks.length : 33;
+    var n = DATA ? DATA.blocks.length : 28;
     return '<div class="instr">' +
       '<h1>How to review</h1>' +
       '<p>There are <b>' + n + ' blocks</b>. Each block shows one English text and <b>four translations into ' + L + '</b>, numbered 1 to 4. ' +
@@ -274,11 +274,22 @@
       var raw = lsGet(stateKey(lang)); S = null;
       try { S = raw ? JSON.parse(raw) : null; } catch (e) { S = null; }
       $("#version-warn").hidden = true;
+      var oldState = null;
       if (S && S.data_version !== DATA.version) {
-        $("#version-warn").hidden = false;
-        $("#version-warn").textContent = "The review texts were updated since you started. Please export your work and contact the person who invited you before continuing.";
+        // Saved answers belong to other texts (the sample changed): never mix them with the new blocks. Keep a copy
+        // under its own key, offer it as a download, and start the new texts (keeping the "About you" answers).
+        if (S.reviewer || Object.keys(S.blocks || {}).length) {
+          oldState = S;
+          lsSet("esa-review/archive/" + lang + "/" + S.data_version, raw);
+        }
+        S = null;
       }
-      if (!S) S = newState();
+      if (!S) {
+        S = newState();
+        if (oldState && oldState.reviewer) S.reviewer = oldState.reviewer;
+        if (oldState) persist();
+      }
+      if (oldState) showVersionChange(oldState);
       claimTab(lang);
       var pill = $("#tb-lang"); pill.innerHTML = "";
       pill.appendChild(document.createTextNode(LANGS[lang].en + " · "));
@@ -710,10 +721,30 @@
   $("#btn-menu").addEventListener("click", function () { $("#dlg-menu").showModal(); });
 
   /* ---------------- export / import ---------------- */
-  function exportName() {
+  function exportName(st, suffix) {
     var d = new Date(), p = function (x) { return (x < 10 ? "0" : "") + x; };
     var ts = d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + "-" + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
-    return "esa_" + LANG + "_" + ((S.reviewer && S.reviewer.code) || "reviewer") + "_" + ts + ".json";
+    return "esa_" + LANG + "_" + ((st.reviewer && st.reviewer.code) || "reviewer") + "_" + ts + (suffix || "") + ".json";
+  }
+  function download(obj, name) {
+    var blob = new Blob([JSON.stringify(obj, null, 1)], { type: "application/json" });
+    var a = el("a", { href: URL.createObjectURL(blob), download: name });
+    document.body.appendChild(a); a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+  }
+  function showVersionChange(old) {
+    var n = Object.keys(old.blocks || {}).length;
+    $("#version-text").textContent = "The review texts for " + LANGS[LANG].en + " changed after you started (" + n +
+      " block" + (n === 1 ? "" : "s") + " opened with the earlier texts). Those answers cannot be carried over to the new " +
+      "blocks. If you rated anything, please download them and send the file to the person who invited you; then continue " +
+      "with the new texts. Your \u201cAbout you\u201d answers are kept.";
+    $("#btn-export-old").onclick = function () {
+      download({ format: "esa-review-export", format_version: old.format_version || 2, superseded: true,
+        app_version: old.app_version, lang: old.lang, data_version: old.data_version, uid: old.uid, offset_unit: "utf16",
+        exported_at: nowIso(), created_at: old.created_at, updated_at: old.updated_at, reviewer: old.reviewer,
+        blocks: old.blocks }, exportName(old, "_earlier-texts"));
+    };
+    $("#dlg-version").showModal();
   }
   function doExport() {
     if (!S || !DATA) return;
@@ -724,12 +755,10 @@
       offset_unit: "utf16", exported_at: nowIso(), timezone_offset_min: -new Date().getTimezoneOffset(),
       created_at: S.created_at, updated_at: S.updated_at, reviewer: S.reviewer,
       progress: { blocks_complete: doneCount(), blocks_total: DATA.blocks.length }, blocks: S.blocks };
-    var blob = new Blob([JSON.stringify(out, null, 1)], { type: "application/json" });
-    var a = el("a", { href: URL.createObjectURL(blob), download: exportName() });
-    document.body.appendChild(a); a.click();
-    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+    var name = exportName(S);
+    download(out, name);
     S.exported_at = out.exported_at; S.changes_since_export = 0; S.done_at_export = out.progress.blocks_complete; persist(); renderChrome();
-    toast("Downloaded " + a.download + ". Please send this file to the person who invited you.", 6000);
+    toast("Downloaded " + name + ". Please send this file to the person who invited you.", 6000);
   }
   $("#btn-export").addEventListener("click", doExport);
   $("#btn-export-done").addEventListener("click", function () { $("#dlg-done").close(); doExport(); });

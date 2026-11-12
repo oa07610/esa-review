@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link id="font-base" rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap">
 <link id="font-lang" rel="stylesheet" href="">
-<link rel="stylesheet" href="app.css?v=2.0.1">
+<link rel="stylesheet" href="app.css?v=2.1.0">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231f5f5b'/%3E%3Cpath d='M8 11h16M8 16h10M8 21h13' stroke='%23fff' stroke-width='2.6' stroke-linecap='round'/%3E%3C/svg%3E">
 </head>
 <body>
@@ -59,7 +59,7 @@
       <p class="lede">Thank you for helping. You will check how well four different translations into <strong class="ob-lang"></strong>
         render English medical exam questions and requests.</p>
       <ul class="facts">
-        <li><strong>33 blocks</strong> (an exam question or a short request), each with four translations, and three quick questions per translation. About 1 to 1.5 hours in total.</li>
+        <li><strong>28 blocks</strong> (an exam question or a short request), each with four translations, and three quick questions per translation. About 45 to 75 minutes in total.</li>
         <li>You can stop at any time. Your work is <strong>saved automatically in this browser</strong> and is here when you come back on the same device and browser.</li>
         <li>When you finish (or want a backup) press <strong>Export</strong>. It downloads a file; <strong>send that file to the person who invited you</strong>. Nothing is sent over the internet by this page.</li>
         <li>To move to another device, export here and use <em>More &rarr; Resume from a file</em> there.</li>
@@ -191,6 +191,13 @@
   <form method="dialog"><button class="btn">Close</button></form>
 </dialog>
 
+<dialog id="dlg-version" class="dlg">
+  <h2>The review texts changed</h2>
+  <p id="version-text"></p>
+  <div class="row-btns"><button class="btn" id="btn-export-old">Download my earlier answers</button></div>
+  <form method="dialog"><button class="btn primary">Continue with the new texts</button></form>
+</dialog>
+
 <dialog id="dlg-reminder" class="dlg">
   <h2>Time for a backup</h2>
   <p id="reminder-text"></p>
@@ -198,6 +205,6 @@
   <form method="dialog"><button class="btn">Later</button></form>
 </dialog>
 
-<script src="app.js?v=2.0.1"></script>
+<script src="app.js?v=2.1.0"></script>
 </body>
 </html>
